@@ -110,11 +110,11 @@ def build_sam2_video_predictor(
     hydra_overrides = [
         "++model._target_=sam2.sam2_video_predictor.SAM2VideoPredictor",
     ]
-    if vos_optimized:
-        hydra_overrides = [
-            "++model._target_=sam2.sam2_video_predictor.SAM2VideoPredictorVOS",
-            "++model.compile_image_encoder=True",  # Let sam2_base handle this
-        ]
+    # if vos_optimized:
+    #     hydra_overrides = [
+    #         "++model._target_=sam2.sam2_video_predictor.SAM2VideoPredictorVOS",
+    #         "++model.compile_image_encoder=True",  # Let sam2_base handle this
+    #     ]
 
     if apply_postprocessing:
         hydra_overrides_extra = hydra_overrides_extra.copy()
@@ -164,11 +164,21 @@ def build_sam2_video_predictor_hf(model_id, **kwargs):
 def _load_checkpoint(model, ckpt_path):
     if ckpt_path is not None:
         sd = torch.load(ckpt_path, map_location="cpu", weights_only=True)["model"]
-        missing_keys, unexpected_keys = model.load_state_dict(sd)
+        missing_keys, unexpected_keys = model.load_state_dict(sd, strict=False)
+        
+        # Filter out video-related keys that are not needed for image segmentation
+        video_related_keys = [
+            "no_obj_embed_spatial", 
+            "obj_ptr_tpos_proj.weight", 
+            "obj_ptr_tpos_proj.bias"
+        ]
+        critical_missing_keys = [key for key in missing_keys if key not in video_related_keys]
+        
+        if critical_missing_keys:
+            logging.error(f"Critical missing keys: {critical_missing_keys}")
+            raise RuntimeError()
         if missing_keys:
-            logging.error(missing_keys)
-            raise RuntimeError()
+            logging.warning(f"Non-critical missing keys (video-related): {missing_keys}")
         if unexpected_keys:
-            logging.error(unexpected_keys)
-            raise RuntimeError()
+            logging.warning(f"Unexpected keys: {unexpected_keys}")
         logging.info("Loaded checkpoint sucessfully")

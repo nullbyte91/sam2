@@ -198,7 +198,10 @@ class MaskDecoder(nn.Module):
 
         # Expand per-image data in batch direction to be per-mask
         if repeat_image:
-            src = torch.repeat_interleave(image_embeddings, tokens.shape[0], dim=0)
+            # Original implementation using repeat_interleave
+            # src = torch.repeat_interleave(image_embeddings, tokens.shape[0], dim=0)
+            # Modified for TensorRT compatibility: replaced repeat_interleave with tile
+            src = torch.tile(image_embeddings, (tokens.shape[0], 1, 1, 1))
         else:
             assert image_embeddings.shape[0] == tokens.shape[0]
             src = image_embeddings
@@ -206,7 +209,10 @@ class MaskDecoder(nn.Module):
         assert (
             image_pe.size(0) == 1
         ), "image_pe should have size 1 in batch dim (from `get_dense_pe()`)"
-        pos_src = torch.repeat_interleave(image_pe, tokens.shape[0], dim=0)
+        # Original implementation using repeat_interleave
+        # pos_src = torch.repeat_interleave(image_pe, tokens.shape[0], dim=0)
+        # Modified for TensorRT compatibility: replaced repeat_interleave with tile
+        pos_src = torch.tile(image_pe, (tokens.shape[0], 1, 1, 1))
         b, c, h, w = src.shape
 
         # Run the transformer
