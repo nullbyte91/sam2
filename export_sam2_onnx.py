@@ -26,10 +26,10 @@ DEFAULT_NUM_POINTS = 10
 
 # Model configurations
 MODEL_CONFIGS: Dict[str, str] = {
-    "sam2.1_hiera_tiny": "configs/sam2.1/sam2.1_hiera_t.yaml",
-    "sam2.1_hiera_small": "configs/sam2.1/sam2.1_hiera_s.yaml",
-    "sam2.1_hiera_base_plus": "configs/sam2.1/sam2.1_hiera_b+.yaml",
-    "sam2.1_hiera_large": "configs/sam2.1/sam2.1_hiera_l.yaml"
+    "sam2_hiera_tiny": "configs/sam2/sam2_hiera_t.yaml",
+    "sam2_hiera_small": "configs/sam2/sam2_hiera_s.yaml",
+    "sam2_hiera_base_plus": "configs/sam2/sam2_hiera_b+.yaml",
+    "sam2_hiera_large": "configs/sam2/sam2_hiera_l.yaml"
 }
 
 class SAM2Encoder(nn.Module):
@@ -182,7 +182,6 @@ def get_model_config(model_type: str) -> str:
     if model_type not in MODEL_CONFIGS:
         raise KeyError(f"Unknown model type: {model_type}. Available types: {list(MODEL_CONFIGS.keys())}")
     return MODEL_CONFIGS[model_type]
-
 def main() -> None:
     """Main function to export SAM2 model to ONNX format."""
     args = parse_args()
