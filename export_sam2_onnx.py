@@ -1,16 +1,3 @@
-# Copyright 2025 Your Name
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import argparse
 import torch
@@ -19,6 +6,7 @@ from typing import Any, Dict, Tuple
 from sam2.modeling.sam2_base import SAM2Base
 from sam2.build_sam import build_sam2
 import os
+import gc
 
 # Constants
 IMAGE_SIZE = 1024
@@ -176,6 +164,9 @@ def parse_args() -> argparse.Namespace:
                       help='Path to the model checkpoint')
     parser.add_argument('--output-dir', type=str, default='./output',
                       help='Directory to save exported ONNX models (default: ./output)')
+    parser.add_argument('--device', type=str, default='cuda',
+                      choices=['cuda', 'cpu'],
+                      help='Device to use for export (default: cuda)')
     return parser.parse_args()
 
 def get_model_config(model_type: str) -> str:
@@ -189,17 +180,24 @@ def main() -> None:
     # Create output directory if it doesn't exist
     os.makedirs(args.output_dir, exist_ok=True)
     
+    # Setup device
+    device = args.device
+    if device == 'cuda' and not torch.cuda.is_available():
+        print("CUDA not available, falling back to CPU")
+        device = 'cpu'
+    print(f"Using device: {device}")
+    
     # Load model
     model_cfg = get_model_config(args.model_type)
     print(f"Loading model from config: {model_cfg}")
     print(f"Using checkpoint: {args.checkpoint}")
     
-    sam2_model = build_sam2(model_cfg, args.checkpoint, device="cpu")
+    sam2_model = build_sam2(model_cfg, args.checkpoint, device=device)
     
     # Export encoder
     print("\nExporting encoder...")
-    img = torch.randn(1, 3, IMAGE_SIZE, IMAGE_SIZE).cpu()
-    sam2_encoder = SAM2Encoder(sam2_model).cpu()
+    img = torch.randn(1, 3, IMAGE_SIZE, IMAGE_SIZE, device=device)
+    sam2_encoder = SAM2Encoder(sam2_model).to(device)
     
     torch.onnx.export(sam2_encoder,
                      img,
@@ -216,22 +214,28 @@ def main() -> None:
                          "image_embed": {0: "batch_size"},
                      })
     
+    # Free memory after encoder export
+    del sam2_encoder, img
+    if device == 'cuda':
+        torch.cuda.empty_cache()
+    gc.collect()
+    
     # Export decoder
     print("\nExporting decoder...")
-    image_embed = torch.randn(1, 256, 64, 64).cpu()
-    high_res_feats_0 = torch.randn(1, 32, 256, 256).cpu()
-    high_res_feats_1 = torch.randn(1, 64, 128, 128).cpu()
+    image_embed = torch.randn(1, 256, 64, 64, device=device)
+    high_res_feats_0 = torch.randn(1, 32, 256, 256, device=device)
+    high_res_feats_1 = torch.randn(1, 64, 128, 128, device=device)
     
-    sam2_decoder = SAM2Decoder(sam2_model, multimask_output=False).cpu()
+    sam2_decoder = SAM2Decoder(sam2_model, multimask_output=False).to(device)
     
     embed_size = (sam2_model.image_size // sam2_model.backbone_stride, 
                  sam2_model.image_size // sam2_model.backbone_stride)
     mask_input_size = [4 * x for x in embed_size]
     
-    point_coords = torch.randint(low=0, high=IMAGE_SIZE, size=(DEFAULT_NUM_POINTS, 2, 2), dtype=torch.float)
-    point_labels = torch.randint(low=0, high=1, size=(DEFAULT_NUM_POINTS, 2), dtype=torch.float)
-    mask_input = torch.randn(DEFAULT_NUM_POINTS, 1, *mask_input_size, dtype=torch.float)
-    has_mask_input = torch.tensor([1], dtype=torch.float)
+    point_coords = torch.randint(low=0, high=IMAGE_SIZE, size=(DEFAULT_NUM_POINTS, 2, 2), dtype=torch.float, device=device)
+    point_labels = torch.randint(low=0, high=1, size=(DEFAULT_NUM_POINTS, 2), dtype=torch.float, device=device)
+    mask_input = torch.randn(DEFAULT_NUM_POINTS, 1, *mask_input_size, dtype=torch.float, device=device)
+    has_mask_input = torch.tensor([1], dtype=torch.float, device=device)
     
     torch.onnx.export(sam2_decoder,
                      (image_embed, high_res_feats_0, high_res_feats_1, 
@@ -248,6 +252,13 @@ def main() -> None:
                          "point_labels": {0: "num_labels"},
                          "mask_input": {0: "num_labels"}
                      })
+    
+    # Free memory after decoder export
+    del sam2_decoder, sam2_model, image_embed, high_res_feats_0, high_res_feats_1
+    del point_coords, point_labels, mask_input, has_mask_input
+    if device == 'cuda':
+        torch.cuda.empty_cache()
+    gc.collect()
     
     print(f"\nExport completed! Models saved to {args.output_dir}/")
 
